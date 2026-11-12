@@ -2,7 +2,7 @@
 
 > **Открытый десктоп-харнесс для ИИ-агентов на моделях Яндекса (YandexGPT, Alice AI LLM) и локальных открытых LLM (Ollama, llama.cpp, vLLM).**
 
-[![CI](https://github.com/prochatbottech/harness-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/prochatbottech/harness-desktop/actions/workflows/ci.yml)
+[![CI](https://github.com/prochatbottech/Yandex-Harness/actions/workflows/ci.yml/badge.svg)](https://github.com/prochatbottech/Yandex-Harness/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
@@ -35,8 +35,8 @@
 
 ### 1. Клонирование и установка:
 ```bash
-git clone https://github.com/prochatbottech/harness-desktop.git
-cd harness-desktop
+git clone https://github.com/prochatbottech/Yandex-Harness.git
+cd Yandex-Harness
 pnpm install
 ```
 
@@ -95,4 +95,4 @@ harness-desktop/
 
 ## 🤝 Участие в разработке
 Ознакомьтесь с [CONTRIBUTING.md](docs/CONTRIBUTING.md) перед созданием Pull Request.
-Любые вопросы и идеи можно оставлять в [Issues](https://github.com/prochatbottech/harness-desktop/issues).
+Любые вопросы и идеи можно оставлять в [Issues](https://github.com/prochatbottech/Yandex-Harness/issues).
