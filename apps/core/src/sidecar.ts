@@ -7,6 +7,7 @@ import { OpenAiCompatibleClient } from "@harness/model";
 import { DefaultPolicyEngine, ActionDescriptor, ApprovalDecision } from "@harness/policy";
 import { ToolRegistry, fsReadTool, fsWriteTool, calculatorTool } from "@harness/tools";
 import { MemoryManager } from "@harness/memory";
+import { ContribToolsLoader, McpClientManager, McpServerConfig } from "@harness/mcp";
 
 dotenv.config();
 
@@ -14,6 +15,7 @@ const API_KEY = process.env.YANDEX_API_KEY || "";
 const FOLDER_ID = process.env.YANDEX_FOLDER_ID || "";
 const DEFAULT_MODEL = process.env.YANDEX_MODEL || "gpt://b1g2846d6bp9q0pe8pjv/yandexgpt/latest";
 const WORKSPACE_DIR = path.resolve(process.cwd(), "workspace");
+const CONTRIB_DIR = path.resolve(process.cwd(), "tools-contrib");
 
 export async function runSidecarServer() {
   await fs.mkdir(WORKSPACE_DIR, { recursive: true });
@@ -29,6 +31,13 @@ export async function runSidecarServer() {
   toolRegistry.register(fsReadTool);
   toolRegistry.register(fsWriteTool);
   toolRegistry.register(calculatorTool);
+
+  // Load custom tools from tools-contrib/
+  const contribLoader = new ContribToolsLoader(toolRegistry);
+  const loadedContribCount = await contribLoader.loadFromDirectory(CONTRIB_DIR);
+
+  // Initialize MCP Manager
+  const mcpManager = new McpClientManager(toolRegistry);
 
   const policyEngine = new DefaultPolicyEngine();
   const memoryManager = new MemoryManager(WORKSPACE_DIR);
@@ -61,6 +70,29 @@ export async function runSidecarServer() {
           pendingApprovals.delete(msg.approvalId);
           resolver(msg.decision);
         }
+        return;
+      }
+
+      if (msg.type === "connect_mcp") {
+        const config: McpServerConfig = msg.config;
+        const status = await mcpManager.connectServer(config);
+        sendToHost({
+          type: "mcp_status",
+          status
+        });
+        return;
+      }
+
+      if (msg.type === "list_tools") {
+        const tools = toolRegistry.list().map((t) => ({
+          name: t.name,
+          description: t.description,
+          risk: t.risk
+        }));
+        sendToHost({
+          type: "tools_list",
+          tools
+        });
         return;
       }
 
@@ -106,7 +138,13 @@ export async function runSidecarServer() {
     }
   });
 
-  sendToHost({ type: "ready", model: DEFAULT_MODEL, workspace: WORKSPACE_DIR });
+  sendToHost({
+    type: "ready",
+    model: DEFAULT_MODEL,
+    workspace: WORKSPACE_DIR,
+    contribLoaded: loadedContribCount,
+    tools: toolRegistry.list().map((t) => t.name)
+  });
 }
 
 if (process.argv[1]?.endsWith("sidecar.js") || process.argv[1]?.endsWith("sidecar.ts")) {

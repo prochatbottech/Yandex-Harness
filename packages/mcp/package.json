@@ -1,0 +1,16 @@
+{
+  "name": "@harness/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@harness/policy": "workspace:*",
+    "@harness/tools": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  }
+}

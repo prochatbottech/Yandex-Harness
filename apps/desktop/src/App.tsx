@@ -23,7 +23,17 @@ interface StepItem {
   };
 }
 
+interface McpPlugin {
+  name: string;
+  command: string;
+  args: string;
+  connected: boolean;
+  toolsCount: number;
+  error?: string;
+}
+
 export default function App() {
+  const [activeTab, setActiveTab] = useState<"chat" | "plugins">("chat");
   const [mode, setMode] = useState<"agent" | "chat">("agent");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -31,12 +41,26 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [activeModel, setActiveModel] = useState("YandexGPT");
   const [usage, setUsage] = useState<{ total: number } | null>(null);
+  const [availableTools, setAvailableTools] = useState<string[]>([]);
+
+  // MCP Plugin State
+  const [plugins, setPlugins] = useState<McpPlugin[]>([
+    {
+      name: "filesystem",
+      command: "npx",
+      args: "-y @modelcontextprotocol/server-filesystem ./workspace",
+      connected: false,
+      toolsCount: 0
+    }
+  ]);
+  const [newPluginName, setNewPluginName] = useState("");
+  const [newPluginCommand, setNewPluginCommand] = useState("");
+  const [newPluginArgs, setNewPluginArgs] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const stepsEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Start sidecar process when desktop app starts
     invoke("start_sidecar")
       .then(() => console.log("Sidecar started"))
       .catch((err) => console.error("Error starting sidecar:", err));
@@ -47,6 +71,29 @@ export default function App() {
 
         if (payload.type === "ready") {
           setActiveModel(payload.model.split("/").pop() || "YandexGPT");
+          if (payload.tools) setAvailableTools(payload.tools);
+        }
+
+        if (payload.type === "mcp_status") {
+          const status = payload.status;
+          setPlugins((prev) =>
+            prev.map((p) =>
+              p.name === status.name
+                ? {
+                    ...p,
+                    connected: status.connected,
+                    toolsCount: status.toolsCount,
+                    error: status.error
+                  }
+                : p
+            )
+          );
+          // Refresh tools list
+          invoke("request_tools_list").catch(console.error);
+        }
+
+        if (payload.type === "tools_list") {
+          setAvailableTools(payload.tools.map((t: { name: string }) => t.name));
         }
 
         if (payload.type === "event") {
@@ -163,13 +210,42 @@ export default function App() {
         approvalId,
         decision
       });
-      // Remove or mark approval in steps
       setSteps((prev) =>
         prev.map((s) => (s.approvalId === approvalId ? { ...s, content: `Решение: ${decision}` } : s))
       );
     } catch (err) {
       console.error("Error responding to approval:", err);
     }
+  };
+
+  const handleConnectPlugin = async (p: McpPlugin) => {
+    try {
+      await invoke("connect_mcp_server", {
+        config: {
+          name: p.name,
+          transport: "stdio",
+          command: p.command,
+          args: p.args ? p.args.split(" ") : []
+        }
+      });
+    } catch (err) {
+      console.error("Error connecting MCP plugin:", err);
+    }
+  };
+
+  const handleAddCustomPlugin = () => {
+    if (!newPluginName.trim() || !newPluginCommand.trim()) return;
+    const p: McpPlugin = {
+      name: newPluginName.trim(),
+      command: newPluginCommand.trim(),
+      args: newPluginArgs.trim(),
+      connected: false,
+      toolsCount: 0
+    };
+    setPlugins((prev) => [...prev, p]);
+    setNewPluginName("");
+    setNewPluginCommand("");
+    setNewPluginArgs("");
   };
 
   return (
@@ -182,23 +258,49 @@ export default function App() {
 
         <div className="mode-toggle">
           <button
-            className={`mode-btn ${mode === "agent" ? "active" : ""}`}
-            onClick={() => setMode("agent")}
-          >
-            🤖 Агент
-          </button>
-          <button
-            className={`mode-btn ${mode === "chat" ? "active" : ""}`}
-            onClick={() => setMode("chat")}
+            className={`mode-btn ${activeTab === "chat" ? "active" : ""}`}
+            onClick={() => setActiveTab("chat")}
           >
             💬 Чат
           </button>
+          <button
+            className={`mode-btn ${activeTab === "plugins" ? "active" : ""}`}
+            onClick={() => setActiveTab("plugins")}
+          >
+            🔌 MCP ({plugins.filter((p) => p.connected).length})
+          </button>
         </div>
+
+        {activeTab === "chat" && (
+          <div className="mode-toggle">
+            <button
+              className={`mode-btn ${mode === "agent" ? "active" : ""}`}
+              onClick={() => setMode("agent")}
+            >
+              🤖 Агент
+            </button>
+            <button
+              className={`mode-btn ${mode === "chat" ? "active" : ""}`}
+              onClick={() => setMode("chat")}
+            >
+              💭 Простой чат
+            </button>
+          </div>
+        )}
 
         <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
           <p><strong>Модель:</strong> {activeModel}</p>
-          <p style={{ marginTop: "0.4rem" }}><strong>Безопасность:</strong> PolicyEngine активен</p>
+          <p style={{ marginTop: "0.4rem" }}><strong>Инструментов:</strong> {availableTools.length}</p>
           {usage && <p style={{ marginTop: "0.4rem" }}><strong>Токены:</strong> {usage.total}</p>}
+        </div>
+
+        <div className="status-badge" style={{ marginBottom: "0.5rem" }}>
+          <strong>Активные tools:</strong>
+          <div style={{ maxHeight: "90px", overflowY: "auto", fontSize: "0.75rem", marginTop: "0.3rem" }}>
+            {availableTools.map((t) => (
+              <div key={t}>• {t}</div>
+            ))}
+          </div>
         </div>
 
         <div className="status-badge">
@@ -210,9 +312,16 @@ export default function App() {
       <main className="main-content">
         <div className="top-bar">
           <div>
-            <strong>Сессия агента</strong> —{" "}
+            <strong>
+              {activeTab === "chat" ? "Сессия агента" : "Управление MCP-плагинами и расширениями"}
+            </strong>{" "}
+            —{" "}
             <span style={{ color: "var(--text-muted)" }}>
-              {mode === "agent" ? "Автономный режим с инструментами" : "Прямой диалог с моделью"}
+              {activeTab === "chat"
+                ? mode === "agent"
+                  ? "Автономный ReAct цикл с вызовом инструментов"
+                  : "Прямой диалог"
+                : "Стандарт Model Context Protocol (stdio / HTTP)"}
             </span>
           </div>
           <div>
@@ -220,118 +329,234 @@ export default function App() {
           </div>
         </div>
 
-        <div className="chat-split-view">
-          {/* Chat Messages */}
-          <section className="chat-panel">
-            <div className="messages-list">
-              {messages.length === 0 && (
-                <div style={{ color: "var(--text-muted)", textAlign: "center", marginTop: "3rem" }}>
-                  👋 Задайте задачу агенту (например: «Прочитай cart.csv и посчитай общую сумму»)
-                </div>
-              )}
-              {messages.map((m, idx) => (
-                <div key={idx} className={`message-bubble message-${m.role}`}>
-                  {m.text}
+        {activeTab === "plugins" ? (
+          /* MCP Plugins Settings Screen */
+          <div style={{ padding: "2rem", overflowY: "auto" }}>
+            <h2 style={{ marginBottom: "1rem" }}>Подключенные MCP серверы</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginBottom: "2rem" }}>
+              {plugins.map((p) => (
+                <div
+                  key={p.name}
+                  style={{
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border)",
+                    padding: "1rem",
+                    borderRadius: "8px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center"
+                  }}
+                >
+                  <div>
+                    <h3 style={{ fontSize: "1.05rem" }}>
+                      {p.name}{" "}
+                      <span
+                        style={{
+                          fontSize: "0.75rem",
+                          padding: "0.2rem 0.5rem",
+                          borderRadius: "4px",
+                          background: p.connected ? "var(--success)" : "var(--border)",
+                          color: p.connected ? "white" : "var(--text-muted)",
+                          marginLeft: "0.5rem"
+                        }}
+                      >
+                        {p.connected ? `Подключен (${p.toolsCount} tools)` : "Не подключен"}
+                      </span>
+                    </h3>
+                    <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.3rem" }}>
+                      Команда: <code>{p.command} {p.args}</code>
+                    </p>
+                    {p.error && (
+                      <p style={{ color: "var(--danger)", fontSize: "0.85rem", marginTop: "0.3rem" }}>
+                        Ошибка: {p.error}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    className="send-btn"
+                    style={{ padding: "0.5rem 1rem" }}
+                    onClick={() => handleConnectPlugin(p)}
+                  >
+                    {p.connected ? "Переподключить" : "Подключить"}
+                  </button>
                 </div>
               ))}
-              <div ref={messagesEndRef} />
             </div>
 
-            <div className="input-area">
-              <input
-                type="text"
-                className="chat-input"
-                placeholder="Введите поручение для агента..."
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSend()}
-              />
-              <button className="send-btn" onClick={handleSend} disabled={isRunning || !input.trim()}>
-                {isRunning ? "Выполняется..." : "Отправить"}
+            <h2 style={{ marginBottom: "1rem" }}>Добавить новый MCP-плагин</h2>
+            <div
+              style={{
+                background: "var(--bg-secondary)",
+                border: "1px solid var(--border)",
+                padding: "1.5rem",
+                borderRadius: "8px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "1rem",
+                maxWidth: "600px"
+              }}
+            >
+              <div>
+                <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.3rem" }}>
+                  Название плагина (префикс инструментов)
+                </label>
+                <input
+                  type="text"
+                  className="chat-input"
+                  style={{ width: "100%" }}
+                  placeholder="github, postgres, memory..."
+                  value={newPluginName}
+                  onChange={(e) => setNewPluginName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.3rem" }}>
+                  Команда запуска (stdio)
+                </label>
+                <input
+                  type="text"
+                  className="chat-input"
+                  style={{ width: "100%" }}
+                  placeholder="npx, python, docker..."
+                  value={newPluginCommand}
+                  onChange={(e) => setNewPluginCommand(e.target.value)}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.3rem" }}>
+                  Аргументы команды
+                </label>
+                <input
+                  type="text"
+                  className="chat-input"
+                  style={{ width: "100%" }}
+                  placeholder="-y @modelcontextprotocol/server-xxx ..."
+                  value={newPluginArgs}
+                  onChange={(e) => setNewPluginArgs(e.target.value)}
+                />
+              </div>
+              <button
+                className="send-btn"
+                style={{ alignSelf: "flex-start", marginTop: "0.5rem" }}
+                onClick={handleAddCustomPlugin}
+              >
+                + Добавить в список
               </button>
             </div>
-          </section>
+          </div>
+        ) : (
+          /* Normal Chat + Steps View */
+          <div className="chat-split-view">
+            <section className="chat-panel">
+              <div className="messages-list">
+                {messages.length === 0 && (
+                  <div style={{ color: "var(--text-muted)", textAlign: "center", marginTop: "3rem" }}>
+                    👋 Задайте задачу агенту (например: «Какая погода в Москве?» или «Прочитай cart.csv»)
+                  </div>
+                )}
+                {messages.map((m, idx) => (
+                  <div key={idx} className={`message-bubble message-${m.role}`}>
+                    {m.text}
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
 
-          {/* Steps & Audit Log Panel */}
-          <aside className="steps-panel">
-            <div className="steps-header">
-              <span>Панель шагов агента</span>
-              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{steps.length} действий</span>
-            </div>
+              <div className="input-area">
+                <input
+                  type="text"
+                  className="chat-input"
+                  placeholder="Введите поручение для агента..."
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                />
+                <button className="send-btn" onClick={handleSend} disabled={isRunning || !input.trim()}>
+                  {isRunning ? "Выполняется..." : "Отправить"}
+                </button>
+              </div>
+            </section>
 
-            <div className="steps-list">
-              {steps.length === 0 && (
-                <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", textAlign: "center", marginTop: "2rem" }}>
-                  Шаги и вызовы инструментов отобразятся здесь в реальном времени.
-                </div>
-              )}
-              {steps.map((step) => {
-                if (step.type === "tool_call") {
-                  return (
-                    <div key={step.id} className="step-card tool">
-                      <div className="step-title">
-                        <span>🔧 {step.tool}</span>
-                      </div>
-                      <div className="step-body">
-                        {JSON.stringify(step.args, null, 2)}
-                      </div>
-                    </div>
-                  );
-                }
+            <aside className="steps-panel">
+              <div className="steps-header">
+                <span>Панель шагов агента</span>
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{steps.length} действий</span>
+              </div>
 
-                if (step.type === "tool_result") {
-                  return (
-                    <div key={step.id} className="step-card">
-                      <div className="step-title" style={{ color: "var(--text-muted)" }}>
-                        📥 Результат
+              <div className="steps-list">
+                {steps.length === 0 && (
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", textAlign: "center", marginTop: "2rem" }}>
+                    Шаги и вызовы инструментов отобразятся здесь в реальном времени.
+                  </div>
+                )}
+                {steps.map((step) => {
+                  if (step.type === "tool_call") {
+                    return (
+                      <div key={step.id} className="step-card tool">
+                        <div className="step-title">
+                          <span>🔧 {step.tool}</span>
+                        </div>
+                        <div className="step-body">
+                          {JSON.stringify(step.args, null, 2)}
+                        </div>
                       </div>
-                      <div className="step-body">{step.content}</div>
-                    </div>
-                  );
-                }
+                    );
+                  }
 
-                if (step.type === "approval_request" && step.action && step.approvalId) {
-                  return (
-                    <div key={step.id} className="step-card approval">
-                      <div className="step-title" style={{ color: "var(--warning)" }}>
-                        ⚠️ Согласование действия
+                  if (step.type === "tool_result") {
+                    return (
+                      <div key={step.id} className="step-card">
+                        <div className="step-title" style={{ color: "var(--text-muted)" }}>
+                          📥 Результат
+                        </div>
+                        <div className="step-body">{step.content}</div>
                       </div>
-                      <div style={{ fontSize: "0.8rem", marginTop: "0.2rem" }}>
-                        {step.action.description || step.action.toolName} (Риск: {step.action.risk})
-                      </div>
-                      <div className="step-body">
-                        {JSON.stringify(step.action.args, null, 2)}
-                      </div>
-                      <div className="approval-actions">
-                        <button
-                          className="appr-btn appr-allow"
-                          onClick={() => handleApproval(step.approvalId!, "allow")}
-                        >
-                          Разрешить
-                        </button>
-                        <button
-                          className="appr-btn appr-always"
-                          onClick={() => handleApproval(step.approvalId!, "allow_always")}
-                        >
-                          Всегда
-                        </button>
-                        <button
-                          className="appr-btn appr-deny"
-                          onClick={() => handleApproval(step.approvalId!, "deny")}
-                        >
-                          Отклонить
-                        </button>
-                      </div>
-                    </div>
-                  );
-                }
+                    );
+                  }
 
-                return null;
-              })}
-              <div ref={stepsEndRef} />
-            </div>
-          </aside>
-        </div>
+                  if (step.type === "approval_request" && step.action && step.approvalId) {
+                    return (
+                      <div key={step.id} className="step-card approval">
+                        <div className="step-title" style={{ color: "var(--warning)" }}>
+                          ⚠️ Согласование действия
+                        </div>
+                        <div style={{ fontSize: "0.8rem", marginTop: "0.2rem" }}>
+                          {step.action.description || step.action.toolName} (Риск: {step.action.risk})
+                        </div>
+                        <div className="step-body">
+                          {JSON.stringify(step.action.args, null, 2)}
+                        </div>
+                        <div className="approval-actions">
+                          <button
+                            className="appr-btn appr-allow"
+                            onClick={() => handleApproval(step.approvalId!, "allow")}
+                          >
+                            Разрешить
+                          </button>
+                          <button
+                            className="appr-btn appr-always"
+                            onClick={() => handleApproval(step.approvalId!, "allow_always")}
+                          >
+                            Всегда
+                          </button>
+                          <button
+                            className="appr-btn appr-deny"
+                            onClick={() => handleApproval(step.approvalId!, "deny")}
+                          >
+                            Отклонить
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return null;
+                })}
+                <div ref={stepsEndRef} />
+              </div>
+            </aside>
+          </div>
+        )}
       </main>
     </div>
   );

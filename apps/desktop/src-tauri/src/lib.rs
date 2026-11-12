@@ -34,6 +34,19 @@ struct RunPromptMessage {
     mode: String,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct ConnectMcpMessage {
+    #[serde(rename = "type")]
+    msg_type: String,
+    config: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct SimpleCommandMessage {
+    #[serde(rename = "type")]
+    msg_type: String,
+}
+
 #[tauri::command]
 fn start_sidecar(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     let mut proc = state.process.lock().map_err(|e| e.to_string())?;
@@ -115,6 +128,42 @@ fn respond_approval(
     }
 }
 
+#[tauri::command]
+fn connect_mcp_server(
+    config: serde_json::Value,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut proc = state.process.lock().map_err(|e| e.to_string())?;
+    if let Some(stdin) = &mut proc.stdin {
+        let msg = ConnectMcpMessage {
+            msg_type: "connect_mcp".into(),
+            config,
+        };
+        let serialized = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        writeln!(stdin, "{}", serialized).map_err(|e| e.to_string())?;
+        stdin.flush().map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err("Sidecar stdin not available".into())
+    }
+}
+
+#[tauri::command]
+fn request_tools_list(state: State<'_, AppState>) -> Result<(), String> {
+    let mut proc = state.process.lock().map_err(|e| e.to_string())?;
+    if let Some(stdin) = &mut proc.stdin {
+        let msg = SimpleCommandMessage {
+            msg_type: "list_tools".into(),
+        };
+        let serialized = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        writeln!(stdin, "{}", serialized).map_err(|e| e.to_string())?;
+        stdin.flush().map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err("Sidecar stdin not available".into())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -123,7 +172,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             start_sidecar,
             send_prompt,
-            respond_approval
+            respond_approval,
+            connect_mcp_server,
+            request_tools_list
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
