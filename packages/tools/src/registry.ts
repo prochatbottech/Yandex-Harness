@@ -1,0 +1,28 @@
+import { Tool } from "./types.js";
+
+export class ToolRegistry {
+  private tools: Map<string, Tool> = new Map();
+
+  register(tool: Tool): void {
+    this.tools.set(tool.name, tool);
+  }
+
+  get(name: string): Tool | undefined {
+    return this.tools.get(name);
+  }
+
+  list(): Tool[] {
+    return Array.from(this.tools.values());
+  }
+
+  toModelDefinitions() {
+    return this.list().map((tool) => ({
+      type: "function" as const,
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.schema
+      }
+    }));
+  }
+}

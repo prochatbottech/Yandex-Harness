@@ -1,0 +1,21 @@
+{
+  "name": "@harness/core",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "harness-core": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "@harness/agent-loop": "workspace:*",
+    "@harness/memory": "workspace:*",
+    "@harness/model": "workspace:*",
+    "@harness/policy": "workspace:*",
+    "@harness/tools": "workspace:*",
+    "dotenv": "^16.6.1"
+  }
+}

@@ -1,0 +1,26 @@
+node_modules/
+dist/
+.turbo/
+.cache/
+coverage/
+
+# Environment and secrets
+.env
+.env.local
+*.local
+config.local.yaml
+
+# SQLite state & agent storage
+state.db
+state.db-journal
+workspace/
+
+# Build artifacts
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Tauri & Rust
+apps/desktop/src-tauri/target/
