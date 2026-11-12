@@ -130,8 +130,13 @@ export async function main() {
   }
 
   rl.close();
+  // Явно завершаем процесс: readline держит stdin открытым в event loop
+  process.exit(0);
 }
 
 if (process.argv[1]?.endsWith("cli.js") || process.argv[1]?.endsWith("cli.ts")) {
-  main().catch(console.error);
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }

@@ -5,6 +5,12 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "opener:default",
+    "core:app:allow-app-show",
+    "allow-start-sidecar",
+    "allow-send-prompt",
+    "allow-respond-approval",
+    "allow-connect-mcp-server",
+    "allow-request-tools-list"
   ]
 }
