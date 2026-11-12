@@ -1,0 +1,18 @@
+name: Feature Request
+description: Предложить новую функцию или инструмент
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Описание идеи
+      description: Какую задачу решает эта функция?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Предлагаемое решение
+      description: Как это должно работать в интерфейсе или ядре агента?
+    validations:
+      required: true

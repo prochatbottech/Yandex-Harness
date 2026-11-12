@@ -1,0 +1,35 @@
+name: Bug Report
+description: Сообщить об ошибке в Harness Desktop
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Спасибо, что сообщаете о баге! Заполните информацию ниже:
+  - type: input
+    id: os
+    attributes:
+      label: Операционная система
+      description: Windows 10/11, macOS (Apple Silicon / Intel), Linux
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Используемая модель
+      description: YandexGPT Pro 5.1, Alice AI LLM, Ollama и т.д.
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Описание проблемы
+      description: Что произошло?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: 1. Открыть чат... 2. Отправить промпт...
+    validations:
+      required: true
