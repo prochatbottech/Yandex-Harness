@@ -5,9 +5,18 @@ import * as dotenv from "dotenv";
 import { AgentLoop } from "@harness/agent-loop";
 import { OpenAiCompatibleClient } from "@harness/model";
 import { DefaultPolicyEngine, ActionDescriptor, ApprovalDecision } from "@harness/policy";
-import { ToolRegistry, fsReadTool, fsWriteTool, calculatorTool } from "@harness/tools";
+import {
+  ToolRegistry,
+  fsReadTool,
+  fsWriteTool,
+  calculatorTool,
+  runCodeTool,
+  webFetchTool,
+  createSkillUseTool
+} from "@harness/tools";
 import { MemoryManager } from "@harness/memory";
 import { ContribToolsLoader, McpClientManager, McpServerConfig } from "@harness/mcp";
+import { TaskScheduler } from "@harness/scheduler";
 
 dotenv.config();
 
@@ -16,6 +25,7 @@ const FOLDER_ID = process.env.YANDEX_FOLDER_ID || "";
 const DEFAULT_MODEL = process.env.YANDEX_MODEL || "gpt://b1g2846d6bp9q0pe8pjv/yandexgpt/latest";
 const WORKSPACE_DIR = path.resolve(process.cwd(), "workspace");
 const CONTRIB_DIR = path.resolve(process.cwd(), "tools-contrib");
+const SKILLS_DIR = path.resolve(process.cwd(), "skills");
 
 export async function runSidecarServer() {
   await fs.mkdir(WORKSPACE_DIR, { recursive: true });
@@ -31,6 +41,9 @@ export async function runSidecarServer() {
   toolRegistry.register(fsReadTool);
   toolRegistry.register(fsWriteTool);
   toolRegistry.register(calculatorTool);
+  toolRegistry.register(runCodeTool);
+  toolRegistry.register(webFetchTool);
+  toolRegistry.register(createSkillUseTool(SKILLS_DIR));
 
   // Load custom tools from tools-contrib/
   const contribLoader = new ContribToolsLoader(toolRegistry);
@@ -42,6 +55,8 @@ export async function runSidecarServer() {
   const policyEngine = new DefaultPolicyEngine();
   const memoryManager = new MemoryManager(WORKSPACE_DIR);
   await memoryManager.init();
+
+  const scheduler = new TaskScheduler();
 
   const agent = new AgentLoop(modelClient, toolRegistry, policyEngine);
 
@@ -56,6 +71,15 @@ export async function runSidecarServer() {
   function sendToHost(message: Record<string, unknown>) {
     process.stdout.write(JSON.stringify(message) + "\n");
   }
+
+  // Scheduler callback trigger
+  scheduler.onTrigger(async (task) => {
+    sendToHost({
+      type: "scheduler_triggered",
+      task
+    });
+  });
+  scheduler.start();
 
   rl.on("line", async (line) => {
     const trimmed = line.trim();
@@ -92,6 +116,20 @@ export async function runSidecarServer() {
         sendToHost({
           type: "tools_list",
           tools
+        });
+        return;
+      }
+
+      if (msg.type === "add_scheduled_task") {
+        const task = scheduler.addTask({
+          name: msg.name,
+          cron: msg.cron || "*/1 * * * *",
+          prompt: msg.prompt,
+          enabled: true
+        });
+        sendToHost({
+          type: "scheduler_task_added",
+          task
         });
         return;
       }

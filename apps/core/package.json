@@ -17,6 +17,7 @@
     "@harness/policy": "workspace:*",
     "@harness/tools": "workspace:*",
     "@harness/mcp": "workspace:*",
+    "@harness/scheduler": "workspace:*",
     "dotenv": "^16.6.1"
   }
 }

@@ -1,6 +1,7 @@
 import { ChatMessage, ModelClient, ToolCall } from "@harness/model";
 import { PolicyEngine } from "@harness/policy";
 import { ToolRegistry } from "@harness/tools";
+import { ContextManager } from "@harness/memory";
 import { AgentEvent, AgentRunOptions } from "./types.js";
 
 const DEFAULT_SYSTEM_PROMPT = `Ты — агент в среде Harness Desktop. Твоя задача — довести поручение пользователя до результата, а не описывать, как его выполнить.
@@ -12,6 +13,8 @@ const DEFAULT_SYSTEM_PROMPT = `Ты — агент в среде Harness Desktop
 5. В финальном ответе: что сделано, где лежит результат (путь файла), какие допущения приняты.`;
 
 export class AgentLoop {
+  private contextManager = new ContextManager();
+
   constructor(
     private modelClient: ModelClient,
     private toolRegistry: ToolRegistry,
@@ -23,7 +26,7 @@ export class AgentLoop {
     const mode = options.mode ?? "agent";
     const systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
 
-    const messages: ChatMessage[] = [
+    let messages: ChatMessage[] = [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ];
@@ -37,8 +40,13 @@ export class AgentLoop {
     while (step < maxSteps) {
       step++;
 
+      // Check context limit and compact if necessary
+      if (this.contextManager.shouldSummarize(messages)) {
+        messages = this.contextManager.compact(messages);
+      }
+
       let assistantText = "";
-      let toolCalls: ToolCall[] = [];
+      const toolCalls: ToolCall[] = [];
 
       try {
         const stream = this.modelClient.chat({
@@ -73,7 +81,6 @@ export class AgentLoop {
             }
           }
 
-
           if (chunk.usage) {
             totalPromptTokens += chunk.usage.promptTokens;
             totalCompletionTokens += chunk.usage.completionTokens;
@@ -88,7 +95,6 @@ export class AgentLoop {
         return;
       }
 
-      // Add assistant response to messages history
       const assistantMessage: ChatMessage = {
         role: "assistant",
         content: assistantText || undefined,
@@ -96,7 +102,6 @@ export class AgentLoop {
       };
       messages.push(assistantMessage);
 
-      // If no tool calls, model finished its reasoning/response
       if (toolCalls.length === 0) {
         yield {
           type: "done",
@@ -109,7 +114,6 @@ export class AgentLoop {
         return;
       }
 
-      // Execute each tool call
       for (const tc of toolCalls) {
         const toolName = tc.function.name;
         let args: Record<string, unknown> = {};
@@ -144,7 +148,6 @@ export class AgentLoop {
           continue;
         }
 
-        // Policy engine check
         const policyCheck = this.policyEngine.check({
           toolName: tool.name,
           args,
@@ -193,7 +196,6 @@ export class AgentLoop {
           }
         }
 
-        // Run tool
         try {
           const result = await tool.run(args, {
             workspaceDir: options.workspaceDir,

@@ -35,6 +35,9 @@ importers:
       '@harness/policy':
         specifier: workspace:*
         version: link:../../packages/policy
+      '@harness/scheduler':
+        specifier: workspace:*
+        version: link:../../packages/scheduler
       '@harness/tools':
         specifier: workspace:*
         version: link:../../packages/tools
@@ -78,6 +81,9 @@ importers:
 
   packages/agent-loop:
     dependencies:
+      '@harness/memory':
+        specifier: workspace:*
+        version: link:../memory
       '@harness/model':
         specifier: workspace:*
         version: link:../model
@@ -100,11 +106,17 @@ importers:
         specifier: ^1.32.2
         version: 1.32.2(zod@4.6.7)
 
-  packages/memory: {}
+  packages/memory:
+    dependencies:
+      '@harness/model':
+        specifier: workspace:*
+        version: link:../model
 
   packages/model: {}
 
   packages/policy: {}
+
+  packages/scheduler: {}
 
   packages/tools:
     dependencies:
